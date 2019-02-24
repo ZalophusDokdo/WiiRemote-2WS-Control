@@ -4,32 +4,42 @@
 #include <Servo.h>
 
 #define PIN_STEERING_SIGNAL        2
-#define PIN_ESC_SIGNAL             3
+#define PIN_ESC_SIGNAL             4
 
-#define PIN_FIRE_SIGNAL            8  // #######################
+#define PIN_HEAD_LIGHT_SIGNAL     14
+#define PIN_BACK_LIGHT_SIGNAL     15
 
-#define PIN_HEAD_LIGHT_SIGNAL     14  // #######################
-#define PIN_BACK_LIGHT_SIGNAL     15  // #######################
+#define PIN_FIRE_SIGNAL           17
 
-#define SERIAL_DEBUG               0  // 0: active mode, 1: serial debug mode
+#define PIN_STEERING_SELECT       16
+
+#define SERIAL_DEBUG               0    // 0: active mode, 1: serial debug mode
 
 enum eAngle
 {
-  STEERING_ANGLE_MAX    = 165,  // to right
-  STEERING_ANGLE_CENTER = 90,
-  STEERING_ANGLE_MIN    = 15,   // to left
-  STEERING_ANGLE_STEP   = 5,
+  STEERING_ANGLE_MAX           = 165,   // to right
+  STEERING_ANGLE_CENTER        = 90,
+  STEERING_ANGLE_MIN           = 15,    // to left
+  STEERING_ANGLE_STEP          = 5,
 
-  THROTTLE_ANGLE_MAX    = 80,
-  THROTTLE_ANGLE_CENTER = 90,
-  THROTTLE_ANGLE_MIN    = 10,
+  STEERING_ANGLE_MAX_INVERT    = 165,   // to right
+  STEERING_ANGLE_CENTER_INVERT = 90,
+  STEERING_ANGLE_MIN_INVERT    = 15,    // to left
+
+  THROTTLE_ANGLE_MAX           = 160,   // 80,
+  THROTTLE_ANGLE_CENTER        = 90,
+  THROTTLE_ANGLE_MIN           = 10,
 };
 
 enum eServoPulse
 {
-  SERVO_PULSE_MAX       = 2400, // to left
-  SERVO_PULSE_NEUTRAL   = 1500, // Futaba compatible, 1.55msec
-  SERVO_PULSE_MIN       = 600, // to right
+  SERVO_PULSE_MAX              = 2400,  // to left
+  SERVO_PULSE_NEUTRAL          = 1550,  // 1500 Futaba compatible, 1.55msec
+  SERVO_PULSE_MIN              = 600,   // to right
+
+  SERVO_PULSE_MAX_INVERT       = 600,   // to right
+  SERVO_PULSE_NEUTRAL_INVERT   = 1450,  // 1460 Futaba compatible, 1.55msec
+  SERVO_PULSE_MIN_INVERT       = 2400,  // to left
 };
 
 enum eESCPulse
@@ -47,13 +57,13 @@ enum eESCPulse
  */
   ESC_PULSE_NEUTRAL     = 1522,
   ESC_PULSE_BRAKE       = 1600,
-  ESC_PULSE_FWD_MAX     = 1200, // 1072
+  ESC_PULSE_FWD_MAX     = 800,   //1200, // 1072
   ESC_PULSE_FWD_MIN     = 1510,
-  ESC_PULSE_FWD_3RD     = (ESC_PULSE_FWD_MIN - 200),
-  ESC_PULSE_FWD_2ND     = (ESC_PULSE_FWD_MIN - 140),
+  ESC_PULSE_FWD_3RD     = (ESC_PULSE_FWD_MIN - 240),
+  ESC_PULSE_FWD_2ND     = (ESC_PULSE_FWD_MIN - 160),
   ESC_PULSE_FWD_1ST     = (ESC_PULSE_FWD_MIN - 80),
 
-  ESC_PULSE_REV_MAX     = 1700, // 1922
+  ESC_PULSE_REV_MAX     = 1700,  // 1922
   ESC_PULSE_REV_FIX     = 1650,
   ESC_PULSE_REV_MIN     = 1600,
 };
@@ -73,7 +83,7 @@ Servo ESC;
 void setup()
 {
 #if SERIAL_DEBUG
-  Serial.begin(9600);
+  Serial.begin(115200);
 
   Serial.print("\r\nfreeMemory() reports: ");
   Serial.print(freeMemory(), DEC);
@@ -86,13 +96,16 @@ void setup()
   ESC.attach(PIN_ESC_SIGNAL);
   ESC.writeMicroseconds(ESC_PULSE_NEUTRAL);
 
-  pinMode(PIN_FIRE_SIGNAL, OUTPUT);
-  digitalWrite(PIN_FIRE_SIGNAL, LOW);
-
   pinMode(PIN_HEAD_LIGHT_SIGNAL, OUTPUT);
   pinMode(PIN_BACK_LIGHT_SIGNAL, OUTPUT);
   digitalWrite(PIN_HEAD_LIGHT_SIGNAL, LOW);
   digitalWrite(PIN_BACK_LIGHT_SIGNAL, LOW);
+
+  pinMode(PIN_FIRE_SIGNAL, OUTPUT);
+  digitalWrite(PIN_FIRE_SIGNAL, LOW);
+
+  pinMode(PIN_STEERING_SELECT, INPUT);
+  digitalWrite(PIN_STEERING_SELECT, LOW);
 
   wiiremote.init();
 
@@ -113,11 +126,12 @@ void loop()
   wiiremote.task(&myapp);
 }
 
-int steering_angle = STEERING_ANGLE_CENTER;
-int old_steering_angle = STEERING_ANGLE_CENTER;
-bool analog_throttle = false;  // false = use "One" button as throttle
-int throttle_angle = THROTTLE_ANGLE_CENTER;
-int gear = GEAR_1ST;
+int steering_angle          = STEERING_ANGLE_CENTER;
+int steering_angle_invert   = STEERING_ANGLE_CENTER_INVERT;
+int old_steering_angle      = STEERING_ANGLE_CENTER;
+bool analog_throttle        = false;  // false = use "One" button as throttle
+int throttle_angle          = THROTTLE_ANGLE_CENTER;
+int gear                    = GEAR_1ST;
 int pulse_steering;
 int pulse_esc;
 bool fire                   = false;                  // fire
@@ -132,13 +146,44 @@ void myapp(void)
 
   /* Steering */
   steering_angle = getSteeringAngle();
-  pulse_steering = map(steering_angle,
-                       STEERING_ANGLE_MIN, STEERING_ANGLE_MAX,
-                       SERVO_PULSE_MAX, SERVO_PULSE_MIN);
-  SteeringServo.writeMicroseconds(pulse_steering);
-  //delay(15);
+  steering_angle_invert = getSteeringAngleInvert();
+  if (digitalRead(PIN_STEERING_SELECT) == HIGH) {
+    pulse_steering = map(steering_angle,
+                         STEERING_ANGLE_MIN, STEERING_ANGLE_MAX,
+                         SERVO_PULSE_MAX, SERVO_PULSE_MIN);
+    SteeringServo.writeMicroseconds(pulse_steering);
+  } else {
+    pulse_steering = map(steering_angle_invert,
+                         STEERING_ANGLE_MIN_INVERT, STEERING_ANGLE_MAX_INVERT,
+                         SERVO_PULSE_MAX_INVERT, SERVO_PULSE_MIN_INVERT);
+    SteeringServo.writeMicroseconds(pulse_steering);
+  }
+  if (wiiremote.buttonPressed(WIIREMOTE_UP)) {
+    steering_angle = STEERING_ANGLE_MIN;
+    steering_angle_invert = STEERING_ANGLE_MIN_INVERT;
+    if (digitalRead(PIN_STEERING_SELECT) == HIGH) {
+      pulse_steering = map(steering_angle, STEERING_ANGLE_MIN, STEERING_ANGLE_MAX, SERVO_PULSE_MAX, SERVO_PULSE_MIN);
+      SteeringServo.writeMicroseconds(pulse_steering);
+    } else {
+      pulse_steering = map(steering_angle_invert, STEERING_ANGLE_MIN_INVERT, STEERING_ANGLE_MAX_INVERT, SERVO_PULSE_MAX_INVERT, SERVO_PULSE_MIN_INVERT);
+      SteeringServo.writeMicroseconds(pulse_steering);
+    }
+  } else if (wiiremote.buttonPressed(WIIREMOTE_DOWN)) {
+    steering_angle = STEERING_ANGLE_MAX;
+    steering_angle_invert = STEERING_ANGLE_MAX_INVERT;
+    if (digitalRead(PIN_STEERING_SELECT) == HIGH) {
+      pulse_steering = map(steering_angle, STEERING_ANGLE_MIN, STEERING_ANGLE_MAX, SERVO_PULSE_MAX, SERVO_PULSE_MIN);
+      SteeringServo.writeMicroseconds(pulse_steering);
+    } else {
+      pulse_steering = map(steering_angle_invert, STEERING_ANGLE_MIN_INVERT, STEERING_ANGLE_MAX_INVERT, SERVO_PULSE_MAX_INVERT, SERVO_PULSE_MIN_INVERT);
+      SteeringServo.writeMicroseconds(pulse_steering);
+    }
+  }
+
+#if SERIAL_DEBUG
   Serial.print("\tServo=");
   Serial.print(pulse_steering);
+#endif
 
   /* Brake and Throttle */
   if (wiiremote.buttonPressed(WIIREMOTE_ONE)) {
@@ -177,8 +222,10 @@ void myapp(void)
   }
   ESC.writeMicroseconds(pulse_esc);
   //delay(15);
+#if SERIAL_DEBUG
   Serial.print("\tESC=");
   Serial.print(pulse_esc);
+#endif
 
   /* Throttle mode */
   if (wiiremote.buttonClicked(WIIREMOTE_HOME)) {
@@ -202,12 +249,9 @@ void myapp(void)
 
   /* Fire */
   if (wiiremote.buttonPressed(WIIREMOTE_A)) {
-//    fire = !fire;
-//    if (fire) {
-      digitalWrite(PIN_FIRE_SIGNAL, HIGH);
-    } else {
-      digitalWrite(PIN_FIRE_SIGNAL, LOW);
-//    }
+    digitalWrite(PIN_FIRE_SIGNAL, HIGH);
+  } else {
+    digitalWrite(PIN_FIRE_SIGNAL, LOW);
   }
 
   /* Head light LED */
@@ -243,6 +287,21 @@ int getSteeringAngle(void)
   /* clipping */
   if (deg > STEERING_ANGLE_MAX) { deg = STEERING_ANGLE_MAX; }
   if (deg < STEERING_ANGLE_MIN) { deg = STEERING_ANGLE_MIN; }
+
+  return deg;
+}
+
+int getSteeringAngleInvert(void)
+{
+  double rad;
+  int deg;
+
+  rad = acos((double) wiiremote.Report.Accel.Y);
+  deg = (int) (rad * 180.0 / PI);
+
+  /* clipping */
+  if (deg > STEERING_ANGLE_MAX_INVERT) { deg = STEERING_ANGLE_MAX_INVERT; }
+  if (deg < STEERING_ANGLE_MIN_INVERT) { deg = STEERING_ANGLE_MIN_INVERT; }
 
   return deg;
 }
@@ -289,3 +348,4 @@ inline void shiftDown(void)
     wiiremote.setLED( (WIIREMOTE_LED1 << (gear - GEAR_1ST)) );
   }
 }
+
